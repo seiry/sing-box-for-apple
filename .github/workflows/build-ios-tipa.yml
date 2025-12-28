@@ -34,6 +34,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
+          cache: false
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -130,7 +131,9 @@ jobs:
           gomobile init -v
 
           # Build only iOS variant and copy to ../sing-box-for-apple/Libbox.xcframework
-          go run ./cmd/internal/build_libbox -target apple -platform ios
+          # NOTE: We only need device slice for this workflow (-sdk iphoneos).
+          # Building iossimulator/amd64 can fail on macos-14 runners due to missing x86_64 simulator cronet libs.
+          go run ./cmd/internal/build_libbox -target apple -platform ios/arm64
           popd
 
           if [[ ! -d "Libbox.xcframework" ]]; then
