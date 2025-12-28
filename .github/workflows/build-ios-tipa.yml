@@ -30,6 +30,11 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -83,8 +88,55 @@ jobs:
             VERSION_NAME="${TS}-${REF_SLUG}"
           fi
 
+          # Choose sing-box ref for building Libbox.xcframework.
+          # - Tag builds: use same tag name
+          # - Non-tag builds: default to dev-next, fallback to main if branch not found
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            SINGBOX_REF="${GITHUB_REF_NAME}"
+          else
+            SINGBOX_REF="dev-next"
+          fi
+
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "build_num=$BUILD_NUM" >> "$GITHUB_OUTPUT"
+          echo "singbox_ref=$SINGBOX_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Build Libbox.xcframework
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -d "Libbox.xcframework" ]]; then
+            echo "Libbox.xcframework already present."
+            exit 0
+          fi
+
+          echo "Building Libbox.xcframework from sing-box ref: ${{ steps.version.outputs.singbox_ref }}"
+
+          pushd ..
+          if [[ ! -d "sing-box" ]]; then
+            git clone --depth 1 --branch "${{ steps.version.outputs.singbox_ref }}" https://github.com/SagerNet/sing-box.git sing-box \
+              || git clone --depth 1 https://github.com/SagerNet/sing-box.git sing-box
+          fi
+          popd
+
+          pushd ../sing-box
+          go version
+          go env GOPATH
+
+          # Install gomobile toolchain used by build_libbox
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.10
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.10
+          gomobile init -v
+
+          # Build only iOS variant and copy to ../sing-box-for-apple/Libbox.xcframework
+          go run ./cmd/internal/build_libbox -target apple -platform ios
+          popd
+
+          if [[ ! -d "Libbox.xcframework" ]]; then
+            echo "Libbox.xcframework was not produced." >&2
+            exit 1
+          fi
 
       - name: Build (iphoneos, unsigned)
         run: |
