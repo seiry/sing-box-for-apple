@@ -117,12 +117,24 @@ jobs:
       - name: Extract app from archive (for unsigned builds)
         run: |
           set -e
-          # Extract the .app from the xcarchive
-          cp -R build/SFI.xcarchive/Products/Applications/SFI.app build/
+          echo "Exploring xcarchive structure..."
+          find build/SFI.xcarchive -name "*.app" -type d
+          
+          # Find the .app in the xcarchive (location may vary)
+          APP_PATH=$(find build/SFI.xcarchive -name "SFI.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: SFI.app not found in xcarchive"
+            echo "Archive contents:"
+            ls -R build/SFI.xcarchive
+            exit 1
+          fi
+          
+          echo "Found app at: $APP_PATH"
           
           # Create a simple IPA (just a zip with .app inside Payload/)
           mkdir -p build/SFI/Payload
-          cp -R build/SFI.app build/SFI/Payload/
+          cp -R "$APP_PATH" build/SFI/Payload/
           cd build/SFI
           zip -r SFI-unsigned.ipa Payload
           cd ../..
