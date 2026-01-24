@@ -1,5 +1,5 @@
 {
-  "originHash" : "3df9e750e08443194175bd6d737045e3d91e43b2e60d468122e1acdd9ea936c0",
+  "originHash" : "1e51842f566cb5b99c8ac7575b8910b65467e19dda2da9562c06bf365e78c2e9",
   "pins" : [
     {
       "identity" : "binarycodable",
@@ -22,10 +22,10 @@
     {
       "identity" : "codeeditsourceeditor",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/CodeEditApp/CodeEditSourceEditor.git",
+      "location" : "https://github.com/nekohasekai/CodeEditSourceEditor.git",
       "state" : {
-        "revision" : "424453d2232c9912933a3b5a1f3d3df669404ed0",
-        "version" : "0.15.2"
+        "branch" : "main",
+        "revision" : "941f378fff2bc5336cbf6503a81f705764af9531"
       }
     },
     {
@@ -47,39 +47,12 @@
       }
     },
     {
-      "identity" : "codescanner",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/twostraws/CodeScanner.git",
-      "state" : {
-        "revision" : "5e886430238944c7200fc9e10dbf2d9550dba865",
-        "version" : "2.5.2"
-      }
-    },
-    {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/groue/GRDB.swift",
       "state" : {
         "revision" : "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
         "version" : "6.29.3"
-      }
-    },
-    {
-      "identity" : "maccontrolcenterui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/orchetect/MacControlCenterUI",
-      "state" : {
-        "revision" : "7a6ef245d3a136884295e20fd0ffa4b90cbe0940",
-        "version" : "2.7.0"
-      }
-    },
-    {
-      "identity" : "menubarextraaccess",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/orchetect/MenuBarExtraAccess",
-      "state" : {
-        "revision" : "707dff6f55217b3ef5b6be84ced3e83511d4df5c",
-        "version" : "1.2.2"
       }
     },
     {

@@ -1,14 +1,18 @@
 import ApplicationLibrary
+import Libbox
 import Library
+import NetworkExtension
 import SwiftUI
 
 public struct MacApplication: Scene {
+    @State private var isInitialized = false
     @State private var showMenuBarExtra = false
-    @State private var isMenuPresented = false
+    @State private var menuBarExtraSpeedMode = MenuBarExtraSpeedMode.enabled.rawValue
     @StateObject private var environments = ExtensionEnvironments()
+    @State private var statusBarController: StatusBarController?
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
-        AnyView(CodeEditTextView(text: text, isEditable: isEditable))
+        AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
     }
 
     public init() {}
@@ -21,7 +25,20 @@ public struct MacApplication: Scene {
                     }
                 }
                 .environment(\.showMenuBarExtra, $showMenuBarExtra)
+                .environment(\.menuBarExtraSpeedMode, $menuBarExtraSpeedMode)
                 .environmentObject(environments)
+                .onChangeCompat(of: showMenuBarExtra) { newValue in
+                    statusBarController?.updateVisibility(newValue)
+                    Task {
+                        await SharedPreferences.showMenuBarExtra.set(newValue)
+                    }
+                }
+                .onChangeCompat(of: menuBarExtraSpeedMode) { newValue in
+                    statusBarController?.updateSpeedMode(newValue)
+                    Task {
+                        await SharedPreferences.menuBarExtraSpeedMode.set(newValue)
+                    }
+                }
         })
         .windowResizability(.contentSize)
         .commands {
@@ -48,15 +65,6 @@ public struct MacApplication: Scene {
             }
         }
 
-        MenuBarExtra(isInserted: $showMenuBarExtra) {
-            MenuView(isMenuPresented: $isMenuPresented)
-                .environmentObject(environments)
-        } label: {
-            Image("MenuIcon")
-        }
-        .menuBarExtraStyle(.window)
-        .menuBarExtraAccess(isPresented: $isMenuPresented)
-
         WindowGroup(for: EditProfileContentView.Context.self) { $context in
             EditProfileContentWindow(context: context)
                 .environment(\.profileEditor, profileEditor)
@@ -66,7 +74,13 @@ public struct MacApplication: Scene {
     }
 
     private func initialize() async {
+        guard !isInitialized else { return }
+        isInitialized = true
         showMenuBarExtra = await SharedPreferences.showMenuBarExtra.get()
+        menuBarExtraSpeedMode = await SharedPreferences.menuBarExtraSpeedMode.get()
+        statusBarController = StatusBarController(environments: environments)
+        statusBarController?.updateVisibility(showMenuBarExtra)
+        statusBarController?.updateSpeedMode(menuBarExtraSpeedMode)
     }
 
     private func hide(closeApp: Bool) {

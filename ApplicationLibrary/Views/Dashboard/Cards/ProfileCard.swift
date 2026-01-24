@@ -98,6 +98,22 @@ public struct ProfileCard: View {
                     }
                 }
             #endif
+                .sheet(isPresented: $viewModel.showQRSShare) {
+                    if let profile = selectedProfile, let data = try? profile.origin.toContent().encode() {
+                        QRSSheet(profileName: profile.name, profileData: data)
+                    }
+                }
+                .fileExporter(
+                    isPresented: $viewModel.showExporter,
+                    document: viewModel.exportDocument,
+                    contentType: viewModel.exportDocument?.contentType ?? .data,
+                    defaultFilename: viewModel.exportDocument?.filename
+                ) { result in
+                    viewModel.exportDocument = nil
+                    if case let .failure(error) = result {
+                        viewModel.alert = AlertState(error: error)
+                    }
+                }
         #endif
                 .alert($viewModel.alert)
     }
@@ -228,26 +244,52 @@ public struct ProfileCard: View {
     @ViewBuilder
     private func shareMenu(for profile: ProfilePreview) -> some View {
         #if os(tvOS)
-            if profile.type == .remote {
-                Menu {
+            Menu {
+                if profile.type == .remote {
                     Button {
                         viewModel.showQRCode = true
                     } label: {
                         Label("Share URL as QR Code", systemImage: "qrcode")
                     }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16))
                 }
-                .buttonStyle(.plain)
-                .actionButtonStyle()
+
+                if let data = try? profile.origin.toContent().encode() {
+                    FormNavigationLink {
+                        QRSSheet(profileName: profile.name, profileData: data)
+                    } label: {
+                        Label("Share as QRS Code", systemImage: "qrcode")
+                    }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 16))
             }
+            .buttonStyle(.plain)
+            .actionButtonStyle()
         #else
             Menu {
+                Button {
+                    exportProfile(profile, type: .file)
+                } label: {
+                    Label("Save File", systemImage: "square.and.arrow.down")
+                }
+
                 Button {
                     viewModel.shareItemType = .file
                 } label: {
                     Label("Share File", systemImage: "doc")
+                }
+
+                Button {
+                    exportProfile(profile, type: .json)
+                } label: {
+                    Label("Save Content JSON", systemImage: "square.and.arrow.down")
+                }
+
+                Button {
+                    viewModel.shareItemType = .json
+                } label: {
+                    Label("Share Content JSON File", systemImage: "curlybraces")
                 }
 
                 if profile.type == .remote {
@@ -259,13 +301,15 @@ public struct ProfileCard: View {
                 }
 
                 Button {
-                    viewModel.shareItemType = .json
+                    viewModel.showQRSShare = true
                 } label: {
-                    Label("Share Content JSON File", systemImage: "curlybraces")
+                    Label("Share as QRS Code", systemImage: "qrcode")
                 }
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 16))
+                    .frame(width: 44, height: 32)
+                    .contentShape(Rectangle())
             }
             .menuIndicator(.hidden)
             .foregroundStyle(.primary)
@@ -307,6 +351,22 @@ public struct ProfileCard: View {
                         preferredEdge: .minY
                     )
                 #endif
+            } catch {
+                viewModel.alert = AlertState(error: error)
+            }
+        }
+
+        private func exportProfile(_ profile: ProfilePreview, type: ExportItemType) {
+            do {
+                switch type {
+                case .file:
+                    let doc = try ProfileExportDocument(content: profile.origin.toContent())
+                    viewModel.exportDocument = ProfileAnyExportDocument(profile: doc)
+                case .json:
+                    let doc = try ProfileJSONExportDocument(jsonContent: profile.origin.read(), name: profile.name)
+                    viewModel.exportDocument = ProfileAnyExportDocument(json: doc)
+                }
+                viewModel.showExporter = true
             } catch {
                 viewModel.alert = AlertState(error: error)
             }
@@ -403,15 +463,25 @@ extension ProfileCard {
         case json
     }
 
+    enum ExportItemType {
+        case file
+        case json
+    }
+
     @MainActor
     class ViewModel: ObservableObject {
         @Published var showNewProfile = false
         @Published var showProfilePicker = false
         @Published var showQRCode = false
+        @Published var showQRSShare = false
         @Published var isUpdating = false
         @Published var alert: AlertState?
         @Published var profileToEdit: Profile?
         @Published var shareItemType: ShareItemType?
+        #if !os(tvOS)
+            @Published var exportDocument: ProfileAnyExportDocument?
+            @Published var showExporter = false
+        #endif
         #if os(macOS)
             var shareButtonView: NSView?
         #endif
@@ -423,10 +493,7 @@ extension ProfileCard {
                 try await profile.updateRemoteProfile()
                 environments.profileUpdate.send()
             } catch {
-                alert = AlertState(
-                    title: String(localized: "Update Failed"),
-                    message: error.localizedDescription
-                )
+                alert = AlertState(error: error)
             }
         }
     }

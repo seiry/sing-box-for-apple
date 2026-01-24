@@ -1,5 +1,24 @@
 import Foundation
 
+#if os(macOS)
+    public enum MenuBarExtraSpeedMode: Int, CaseIterable {
+        case disabled = 0
+        case enabled = 1
+        case unified = 2
+
+        public var name: String {
+            switch self {
+            case .disabled:
+                return NSLocalizedString("Disabled", comment: "")
+            case .enabled:
+                return NSLocalizedString("Enabled", comment: "")
+            case .unified:
+                return NSLocalizedString("Unified", comment: "")
+            }
+        }
+    }
+#endif
+
 public enum SharedPreferences {
     public static let selectedProfileID = Preference<Int64>("selected_profile_id", defaultValue: -1)
 
@@ -12,9 +31,9 @@ public enum SharedPreferences {
     public static let ignoreMemoryLimit = Preference<Bool>("ignore_memory_limit", defaultValue: ignoreMemoryLimitByDefault)
 
     #if os(iOS)
-        public static let excludeLocalNetworksByDefault = true
+        private static let excludeLocalNetworksByDefault = true
     #elseif os(macOS)
-        public static let excludeLocalNetworksByDefault = false
+        private static let excludeLocalNetworksByDefault = false
     #endif
 
     #if !os(tvOS)
@@ -47,10 +66,15 @@ public enum SharedPreferences {
     #if os(macOS)
         public static let showMenuBarExtra = Preference<Bool>("show_menu_bar_extra", defaultValue: true)
         public static let menuBarExtraInBackground = Preference<Bool>("menu_bar_extra_in_background", defaultValue: false)
+        public static let menuBarExtraSpeedMode = Preference<Int>("menu_bar_extra_speed_mode_1", defaultValue: MenuBarExtraSpeedMode.enabled.rawValue)
         public static let startedByUser = Preference<Bool>("started_by_user", defaultValue: false)
 
         public static func resetMacOS() async {
-            try? await batchDelete([showMenuBarExtra.name, menuBarExtraInBackground.name])
+            try? await batchDelete([
+                showMenuBarExtra.name,
+                menuBarExtraInBackground.name,
+                menuBarExtraSpeedMode.name,
+            ])
         }
     #endif
 
@@ -83,9 +107,11 @@ public enum SharedPreferences {
     // On Demand Rules
 
     public static let alwaysOn = Preference<Bool>("always_on", defaultValue: false)
+    public static let onDemandEnabled = Preference<Bool>("on_demand_enabled", defaultValue: false)
+    public static let onDemandRules = Preference<[OnDemandRule]>("on_demand_rules", defaultValue: [])
 
-    public static func resetOnDemandRules() async {
-        try? await batchDelete([alwaysOn.name])
+    public static func resetOnDemandRules() async throws {
+        try await batchDelete([alwaysOn.name, onDemandEnabled.name, onDemandRules.name])
     }
 
     // Core

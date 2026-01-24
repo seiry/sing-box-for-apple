@@ -5,22 +5,17 @@ import SwiftUI
 @MainActor
 public struct StartStopButton: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
+    private let showsRuntimeDuration: Bool
 
-    public init() {}
+    public init(showsRuntimeDuration: Bool = false) {
+        self.showsRuntimeDuration = showsRuntimeDuration
+    }
 
     public var body: some View {
         Group {
-            if ApplicationLibrary.inPreview {
-                Button {} label: {
-                    #if os(tvOS)
-                        Image(systemName: "stop.fill")
-                    #else
-                        Label("Stop", systemImage: "stop.fill")
-                    #endif
-                }
-                .labelStyle(.iconOnly)
-            } else if let profile = environments.extensionProfile {
-                ToggleConnectionButton().environmentObject(profile)
+            if let profile = environments.extensionProfile {
+                ToggleConnectionButton(showsRuntimeDuration: showsRuntimeDuration)
+                    .environmentObject(profile)
             } else {
                 Button {} label: {
                     #if os(tvOS)
@@ -42,6 +37,7 @@ public struct StartStopButton: View {
         @State private var alert: AlertState?
         @State private var currentTime = Date()
         @State private var isStarting = false
+        let showsRuntimeDuration: Bool
 
         private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -53,7 +49,7 @@ public struct StartStopButton: View {
             } label: {
                 #if os(iOS)
                     HStack(spacing: 8) {
-                        if showRuntimeDuration, profile.status.isConnectedStrict, let duration = runtimeDuration {
+                        if showsRuntimeDuration, profile.status.isConnectedStrict, let duration = runtimeDuration {
                             Text(duration)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -108,37 +104,36 @@ public struct StartStopButton: View {
                 .disabled(!profile.status.isEnabled)
                 .alert($alert)
                 .onReceive(timer) { _ in
-                    currentTime = Date()
+                    guard !Variant.screenshotMode else { return }
+                    Task { @MainActor in
+                        currentTime = Date()
+                    }
                 }
                 .onChangeCompat(of: profile.status) { status in
-                    if isStarting {
-                        if status == .disconnected {
-                            isStarting = false
-                            if #available(iOS 16.0, macOS 13.0, tvOS 17.0, *) {
-                                Task {
+                    Task { @MainActor in
+                        if isStarting {
+                            if status == .disconnected {
+                                isStarting = false
+                                if #available(iOS 16.0, macOS 13.0, tvOS 17.0, *) {
                                     await checkStartupError()
                                 }
+                            } else if status.isConnectedStrict {
+                                isStarting = false
+                                environments.commandClient.connect()
                             }
-                        } else if status.isConnectedStrict {
-                            isStarting = false
-                            environments.commandClient.connect()
                         }
                     }
                 }
         }
 
-        #if os(iOS)
-            private var showRuntimeDuration: Bool {
-                if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
-                    return true
-                }
-                return false
-            }
-        #endif
-
         private var runtimeDuration: String? {
             guard let connectedDate = profile.connectedDate else { return nil }
-            let interval = currentTime.timeIntervalSince(connectedDate)
+            let interval: TimeInterval
+            if Variant.screenshotMode {
+                interval = 3600
+            } else {
+                interval = currentTime.timeIntervalSince(connectedDate)
+            }
             guard interval >= 0 else { return nil }
 
             let hours = Int(interval) / 3600
@@ -154,10 +149,8 @@ public struct StartStopButton: View {
 
         @available(iOS 16.0, macOS 13.0, tvOS 17.0, *)
         private func checkStartupError() async {
-            do {
-                try await profile.fetchLastDisconnectError()
-            } catch {
-                alert = AlertState(title: String(localized: "Service Error"), message: error.localizedDescription)
+            if let alertState = await profile.checkLastDisconnectError() {
+                alert = alertState
             }
         }
 

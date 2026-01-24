@@ -1,6 +1,5 @@
 import AppIntents
 import Foundation
-import Libbox
 import Library
 
 struct StartServiceIntent: AppIntent {
@@ -18,7 +17,7 @@ struct StartServiceIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let extensionProfile = try await (ExtensionProfile.load()) else {
-            throw NSError(domain: "NetworkExtension not installed", code: 0)
+            throw NSError(domain: "IntentsExtension", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "NetworkExtension not installed")])
         }
         let profileList = try await ProfileManager.list()
         let specifiedProfile = profileList.first { $0.name == profile }
@@ -30,14 +29,14 @@ struct StartServiceIntent: AppIntent {
                 profileChanged = true
             }
         } else if profile != "default" {
-            throw NSError(domain: "Specified profile not found: \(profile)", code: 0)
+            throw NSError(domain: "IntentsExtension", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Specified profile not found: \(profile)")])
         }
-        if extensionProfile.status == .connected {
+        if await extensionProfile.status == .connected {
             if !profileChanged {
                 return .result(dialog: "Service is already running")
             }
-            try LibboxNewStandaloneCommandClient()!.serviceReload()
-        } else if extensionProfile.status.isConnected {
+            try await extensionProfile.reloadService()
+        } else if await extensionProfile.status.isConnected {
             try await extensionProfile.restart()
         } else {
             try await extensionProfile.start()
@@ -60,9 +59,9 @@ struct RestartServiceIntent: AppIntent {
         guard let extensionProfile = try await (ExtensionProfile.load()) else {
             return .result(dialog: "Service is not installed")
         }
-        if extensionProfile.status == .connected {
-            try LibboxNewStandaloneCommandClient()!.serviceReload()
-        } else if extensionProfile.status.isConnected {
+        if await extensionProfile.status == .connected {
+            try await extensionProfile.reloadService()
+        } else if await extensionProfile.status.isConnected {
             try await extensionProfile.restart()
         } else {
             try await extensionProfile.start()
@@ -104,7 +103,7 @@ struct ToggleServiceIntent: AppIntent {
         guard let extensionProfile = try await (ExtensionProfile.load()) else {
             return .result(value: false)
         }
-        if extensionProfile.status.isConnected {
+        if await extensionProfile.status.isConnected {
             try await extensionProfile.stop()
             return .result(value: false)
 
@@ -129,7 +128,7 @@ struct GetServiceStatus: AppIntent {
         guard let extensionProfile = try await (ExtensionProfile.load()) else {
             return .result(value: false)
         }
-        return .result(value: extensionProfile.status.isConnected)
+        return await .result(value: extensionProfile.status.isConnected)
     }
 }
 
@@ -145,7 +144,7 @@ struct GetCurrentProfile: AppIntent {
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         guard let profile = try await ProfileManager.get(SharedPreferences.selectedProfileID.get()) else {
-            throw NSError(domain: "No profile selected", code: 0)
+            throw NSError(domain: "IntentsExtension", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "No profile selected")])
         }
         return .result(value: profile.name)
     }
@@ -167,10 +166,10 @@ struct UpdateProfileIntent: AppIntent {
     init() {}
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let profile = try await ProfileManager.get(by: profile) else {
-            throw NSError(domain: "Specified profile not found: \(profile)", code: 0)
+            throw NSError(domain: "IntentsExtension", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Specified profile not found: \(profile)")])
         }
         if profile.type != .remote {
-            throw NSError(domain: "Specified profile is not a remote profile", code: 0)
+            throw NSError(domain: "IntentsExtension", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Specified profile is not a remote profile")])
         }
         try await profile.updateRemoteProfile()
         return .result(dialog: "Profile updated")

@@ -17,6 +17,25 @@ public enum NavigationPage: Int, CaseIterable, Identifiable {
 }
 
 public extension NavigationPage {
+    init?(snapshotValue: String) {
+        switch snapshotValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "dashboard":
+            self = .dashboard
+        case "logs":
+            self = .logs
+        case "settings":
+            self = .settings
+        #if os(macOS)
+            case "groups":
+                self = .groups
+            case "connections":
+                self = .connections
+        #endif
+        default:
+            return nil
+        }
+    }
+
     #if os(macOS)
         static var macosDefaultPages: [NavigationPage] {
             [.logs, .settings]
@@ -87,6 +106,7 @@ public extension NavigationPage {
     }
 
     #if os(macOS)
+        @MainActor
         func visible(_ profile: ExtensionProfile?) -> Bool {
             switch self {
             case .groups, .connections:

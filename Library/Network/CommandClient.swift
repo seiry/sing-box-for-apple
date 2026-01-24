@@ -1,5 +1,9 @@
 import Foundation
 import Libbox
+import os
+import Combine
+
+private let logger = Logger(category: "CommandClient")
 
 public struct LogEntry: Identifiable {
     public let id = UUID()
@@ -39,6 +43,22 @@ public enum LogLevel: Int, CaseIterable, Identifiable {
     }
 }
 
+public struct TrafficSnapshot {
+    public var status: LibboxStatusMessage?
+    public var uplinkHistory: [CGFloat]
+    public var downlinkHistory: [CGFloat]
+
+    public init(
+        status: LibboxStatusMessage? = nil,
+        uplinkHistory: [CGFloat] = Array(repeating: 0, count: 30),
+        downlinkHistory: [CGFloat] = Array(repeating: 0, count: 30)
+    ) {
+        self.status = status
+        self.uplinkHistory = uplinkHistory
+        self.downlinkHistory = downlinkHistory
+    }
+}
+
 public class CommandClient: ObservableObject {
     public enum ConnectionType {
         case status
@@ -51,9 +71,18 @@ public class CommandClient: ObservableObject {
     private let connectionTypes: [ConnectionType]
     private let logMaxLines: Int
     private var commandClient: LibboxCommandClient?
-    private var connectTask: Task<Void, Error>?
+    private var connectTask: Task<Void, Never>?
+    private var activeConnectionToken: UInt64 = 0
+    private var isConnecting = false
     @Published public var isConnected: Bool
-    @Published public var status: LibboxStatusMessage?
+    // Coalesce traffic updates so SwiftUI re-renders once per status tick.
+    @Published private var trafficSnapshot = TrafficSnapshot()
+    public var status: LibboxStatusMessage? { trafficSnapshot.status }
+    public var statusPublisher: AnyPublisher<LibboxStatusMessage?, Never> {
+        $trafficSnapshot
+            .map(\.status)
+            .eraseToAnyPublisher()
+    }
     @Published public var groups: [LibboxOutboundGroup]?
     @Published public var logList: [LogEntry]
     @Published public var defaultLogLevel = 0
@@ -65,10 +94,10 @@ public class CommandClient: ObservableObject {
     @Published public var connectionSort = ConnectionSort.byDate
     @Published public var connections: [LibboxConnection]?
     @Published public var hasAnyConnection: Bool = false
-    public var rawConnections: LibboxConnections?
+    private var connectionsStore: LibboxConnections?
 
-    @Published public var uplinkHistory: [CGFloat] = Array(repeating: 0, count: 30)
-    @Published public var downlinkHistory: [CGFloat] = Array(repeating: 0, count: 30)
+    public var uplinkHistory: [CGFloat] { trafficSnapshot.uplinkHistory }
+    public var downlinkHistory: [CGFloat] { trafficSnapshot.downlinkHistory }
 
     // Batch processing for logs
     private var pendingLogs: [LogEntry] = []
@@ -88,13 +117,30 @@ public class CommandClient: ObservableObject {
         self.init([connectionType], logMaxLines: logMaxLines)
     }
 
+    public func setupMockData() {
+        isConnected = true
+        clashModeList = ["rule", "global", "direct"]
+        clashMode = "rule"
+        trafficSnapshot = TrafficSnapshot(
+            uplinkHistory: Array(repeating: CGFloat(1000), count: 30),
+            downlinkHistory: Array(repeating: CGFloat(5000), count: 30)
+        )
+        hasAnyConnection = true
+    }
+
     public func connect() {
-        if isConnected {
+        if isConnected || isConnecting {
             return
         }
-        disconnect()
-        connectTask = Task {
-            await performConnection()
+        if let commandClient {
+            try? commandClient.disconnect()
+            self.commandClient = nil
+        }
+        isConnecting = true
+        activeConnectionToken &+= 1
+        let token = activeConnectionToken
+        connectTask = Task { [weak self] in
+            await self?.performConnection(token: token)
         }
     }
 
@@ -103,9 +149,14 @@ public class CommandClient: ObservableObject {
             connectTask.cancel()
             self.connectTask = nil
         }
+        isConnecting = false
+        activeConnectionToken &+= 1
         if let commandClient {
             try? commandClient.disconnect()
             self.commandClient = nil
+        }
+        if isConnected {
+            isConnected = false
         }
     }
 
@@ -124,11 +175,18 @@ public class CommandClient: ObservableObject {
         }
     }
 
+    public func clearLogs() {
+        logBatchTimer?.cancel()
+        logBatchTimer = nil
+        pendingLogs.removeAll()
+        logList.removeAll()
+    }
+
     public func filterConnectionsNow() {
-        guard let message = rawConnections else {
+        guard let store = connectionsStore else {
             return
         }
-        let result = filterConnections(message)
+        let result = filterConnections(store)
         connections = result.connections
         hasAnyConnection = result.hasAny
     }
@@ -161,7 +219,7 @@ public class CommandClient: ObservableObject {
         }
     }
 
-    private nonisolated func performConnection() async {
+    private nonisolated func performConnection(token: UInt64) async {
         if connectionTypes.contains(.connections) {
             await initializeConnectionFilterState()
         }
@@ -182,34 +240,50 @@ public class CommandClient: ObservableObject {
             }
         }
         clientOptions.statusInterval = Int64(NSEC_PER_SEC)
-        let client = LibboxNewCommandClient(clientHandler(self), clientOptions)!
+        let client = LibboxNewCommandClient(clientHandler(self, connectionToken: token), clientOptions)!
         do {
-            for i in 0 ..< 10 {
-                try await Task.sleep(nanoseconds: UInt64(Double(100 + (i * 50)) * Double(NSEC_PER_MSEC)))
-                try Task.checkCancellation()
-                do {
-                    try client.connect()
-                    await MainActor.run {
-                        commandClient = client
-                    }
-                    return
-                } catch {}
-                try Task.checkCancellation()
-            }
+            try client.connect()
         } catch {
-            try? client.disconnect()
+            await finishConnectionAttempt(token: token, client: nil)
+            return
+        }
+        await finishConnectionAttempt(token: token, client: client)
+    }
+
+    private func finishConnectionAttempt(token: UInt64, client: LibboxCommandClient?) async {
+        await MainActor.run { [self] in
+            defer {
+                isConnecting = false
+                connectTask = nil
+            }
+            guard token == activeConnectionToken else {
+                if let client {
+                    try? client.disconnect()
+                }
+                return
+            }
+            if let client {
+                commandClient = client
+            }
         }
     }
 
     private class clientHandler: NSObject, LibboxCommandClientHandlerProtocol {
         private let commandClient: CommandClient
+        private let connectionToken: UInt64
 
-        init(_ commandClient: CommandClient) {
+        init(_ commandClient: CommandClient, connectionToken: UInt64) {
             self.commandClient = commandClient
+            self.connectionToken = connectionToken
+        }
+
+        private func isActiveConnection() -> Bool {
+            commandClient.activeConnectionToken == connectionToken
         }
 
         func connected() {
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 if commandClient.connectionTypes.contains(.log) {
                     commandClient.logList = []
                 }
@@ -219,22 +293,25 @@ public class CommandClient: ObservableObject {
 
         func disconnected(_ message: String?) {
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.isConnected = false
             }
             if let message {
-                NSLog("client disconnected: \(message)")
+                logger.debug("client disconnected: \(message)")
             }
         }
 
         func setDefaultLogLevel(_ level: Int32) {
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.defaultLogLevel = Int(level)
             }
         }
 
         func clearLogs() {
             DispatchQueue.main.async { [self] in
-                commandClient.logList.removeAll()
+                guard isActiveConnection() else { return }
+                commandClient.clearLogs()
             }
         }
 
@@ -242,6 +319,7 @@ public class CommandClient: ObservableObject {
             guard let messageList else {
                 return
             }
+            guard isActiveConnection() else { return }
 
             // Collect new logs
             var newLogs: [LogEntry] = []
@@ -253,6 +331,7 @@ public class CommandClient: ObservableObject {
             guard !newLogs.isEmpty else { return }
 
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.pendingLogs.append(contentsOf: newLogs)
                 if commandClient.logBatchTimer == nil {
                     let workItem = DispatchWorkItem { [weak commandClient] in
@@ -267,18 +346,17 @@ public class CommandClient: ObservableObject {
 
         func writeStatus(_ message: LibboxStatusMessage?) {
             DispatchQueue.main.async { [self] in
-                commandClient.status = message
+                guard isActiveConnection() else { return }
+                var snapshot = commandClient.trafficSnapshot
+                snapshot.status = message
                 if let message, message.trafficAvailable {
-                    var newUplink = commandClient.uplinkHistory
-                    newUplink.removeFirst()
-                    newUplink.append(CGFloat(message.uplink))
-                    commandClient.uplinkHistory = newUplink
+                    snapshot.uplinkHistory.removeFirst()
+                    snapshot.uplinkHistory.append(CGFloat(message.uplink))
 
-                    var newDownlink = commandClient.downlinkHistory
-                    newDownlink.removeFirst()
-                    newDownlink.append(CGFloat(message.downlink))
-                    commandClient.downlinkHistory = newDownlink
+                    snapshot.downlinkHistory.removeFirst()
+                    snapshot.downlinkHistory.append(CGFloat(message.downlink))
                 }
+                commandClient.trafficSnapshot = snapshot
             }
         }
 
@@ -286,17 +364,20 @@ public class CommandClient: ObservableObject {
             guard let groups else {
                 return
             }
+            guard isActiveConnection() else { return }
             var newGroups: [LibboxOutboundGroup] = []
             while groups.hasNext() {
                 newGroups.append(groups.next()!)
             }
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.groups = newGroups
             }
         }
 
         func initializeClashMode(_ modeList: LibboxStringIteratorProtocol?, currentMode: String?) {
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.clashModeList = modeList!.toArray()
                 commandClient.clashMode = currentMode!
             }
@@ -304,17 +385,22 @@ public class CommandClient: ObservableObject {
 
         func updateClashMode(_ newMode: String?) {
             DispatchQueue.main.async { [self] in
+                guard isActiveConnection() else { return }
                 commandClient.clashMode = newMode!
             }
         }
 
-        func write(_ message: LibboxConnections?) {
-            guard let message else {
+        func write(_ events: LibboxConnectionEvents?) {
+            guard let events else {
                 return
             }
-            let result = commandClient.filterConnections(message)
             DispatchQueue.main.async { [self] in
-                commandClient.rawConnections = message
+                guard isActiveConnection() else { return }
+                if commandClient.connectionsStore == nil {
+                    commandClient.connectionsStore = LibboxNewConnections()
+                }
+                commandClient.connectionsStore?.apply(events)
+                let result = commandClient.filterConnections(commandClient.connectionsStore!)
                 commandClient.connections = result.connections
                 commandClient.hasAnyConnection = result.hasAny
             }

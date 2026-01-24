@@ -86,7 +86,9 @@ private struct LogViewContent: View {
                 let button = UIButton(type: .system)
                 let config = UIImage.SymbolConfiguration(scale: .large)
                 button.setImage(UIImage(systemName: "line.3.horizontal.circle", withConfiguration: config), for: .normal)
-                button.tintColor = colorScheme == .dark ? .white : .black
+                if #available(iOS 26.0, *) {
+                    button.tintColor = colorScheme == .dark ? .white : .black
+                }
                 button.showsMenuAsPrimaryAction = true
                 button.menu = createMenu()
                 button.setContentHuggingPriority(.required, for: .horizontal)
@@ -96,7 +98,9 @@ private struct LogViewContent: View {
 
             func updateUIView(_ uiView: UIButton, context _: Context) {
                 uiView.menu = createMenu()
-                uiView.tintColor = colorScheme == .dark ? .white : .black
+                if #available(iOS 17.0, *) {
+                    uiView.tintColor = colorScheme == .dark ? .white : .black
+                }
             }
 
             private func createMenu() -> UIMenu {
@@ -217,11 +221,12 @@ private struct LogContentInnerView: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @ObservedObject var dataModel: LogDataModel
     @ObservedObject var viewModel: LogViewModel
+    @Environment(\.colorScheme) private var colorScheme
     private let logFont = Font.system(.caption2, design: .monospaced)
 
     var body: some View {
         Group {
-            if ApplicationLibrary.inPreview {
+            if Variant.screenshotMode {
                 previewContent
             } else if dataModel.isEmpty {
                 emptyContent
@@ -236,8 +241,6 @@ private struct LogContentInnerView: View {
     private var previewContent: some View {
         let logList = [
             "(packet-tunnel) log server started",
-            "INFO[0000] router: loaded geoip database: 250 codes",
-            "INFO[0000] router: loaded geosite database: 1400 codes",
             "INFO[0000] router: updated default interface en0, index 11",
             "inbound/tun[0]: started at utun3",
             "sing-box started (1.666s)",
@@ -246,7 +249,7 @@ private struct LogContentInnerView: View {
             return ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(logList.indices, id: \.self) { index in
-                        Text(ANSIColors.parseAnsiString(logList[index]))
+                        Text(contrastAdjustedText(for: logList[index]))
                             .font(logFont)
                             .focusable()
                     }
@@ -271,13 +274,16 @@ private struct LogContentInnerView: View {
 
     @ViewBuilder
     private var emptyContent: some View {
-        if dataModel.isConnected {
-            Text("Empty logs")
-        } else {
-            Text("Service not started").onAppear {
-                environments.connect()
+        Group {
+            if dataModel.isConnected {
+                Text("Empty logs")
+            } else {
+                Text("Service not started").onAppear {
+                    environments.connect()
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var logScrollView: some View {
@@ -316,8 +322,23 @@ private struct LogContentInnerView: View {
     }
 
     #if os(tvOS)
-        private func highlightedText(for message: String) -> AttributedString {
+        private func contrastAdjustedText(for message: String) -> AttributedString {
             var attributedString = ANSIColors.parseAnsiString(message)
+            let backgroundColor: UIColor = colorScheme == .dark ? .black : .white
+
+            for run in attributedString.runs {
+                if let fgColor = run.foregroundColor {
+                    let uiColor = UIColor(fgColor)
+                    let adjusted = uiColor.adjustedForContrast(against: backgroundColor)
+                    attributedString[run.range].foregroundColor = Color(adjusted)
+                }
+            }
+
+            return attributedString
+        }
+
+        private func highlightedText(for message: String) -> AttributedString {
+            var attributedString = contrastAdjustedText(for: message)
 
             if !viewModel.searchText.isEmpty {
                 let searchText = viewModel.searchText

@@ -402,10 +402,7 @@ struct ProfilePickerSheet: View {
             try await profile.origin.updateRemoteProfile()
             environments.profileUpdate.send()
         } catch {
-            alert = AlertState(
-                title: String(localized: "Update Failed"),
-                message: error.localizedDescription
-            )
+            alert = AlertState(error: error)
         }
     }
 
@@ -531,9 +528,15 @@ private struct ProfilePickerRow: View {
 
     @State private var isUpdating = false
     @State private var showQRCode = false
+    @State private var showQRSShare = false
     #if os(macOS)
         @State private var shareItemType: ShareItemType?
+        @State private var exportItemType: ExportItemType?
         @State private var menuAnchorView: NSView?
+    #endif
+    #if !os(tvOS)
+        @State private var exportDocument: ProfileAnyExportDocument?
+        @State private var showExporter = false
     #endif
 
     var body: some View {
@@ -604,16 +607,26 @@ private struct ProfilePickerRow: View {
                         } label: {
                             Label("Update", systemImage: "arrow.clockwise")
                         }
+                    }
 
-                        Menu {
+                    Menu {
+                        if profile.type == .remote {
                             Button {
                                 showQRCode = true
                             } label: {
                                 Label("Share URL as QR Code", systemImage: "qrcode")
                             }
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
                         }
+
+                        if let data = try? profile.origin.toContent().encode() {
+                            FormNavigationLink {
+                                QRSSheet(profileName: profile.name, profileData: data)
+                            } label: {
+                                Label("Share as QRS Code", systemImage: "barcode")
+                            }
+                        }
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -697,6 +710,22 @@ private struct ProfilePickerRow: View {
                         QRCodeSheet(profileName: profile.name, remoteURL: remoteURL)
                     }
                 }
+                .sheet(isPresented: $showQRSShare) {
+                    if let data = try? profile.origin.toContent().encode() {
+                        QRSSheet(profileName: profile.name, profileData: data)
+                    }
+                }
+                .fileExporter(
+                    isPresented: $showExporter,
+                    document: exportDocument,
+                    contentType: exportDocument?.contentType ?? .data,
+                    defaultFilename: exportDocument?.filename
+                ) { result in
+                    exportDocument = nil
+                    if case let .failure(error) = result {
+                        alert = AlertState(error: error)
+                    }
+                }
             }
 
             private var macOSEditingBody: some View {
@@ -718,6 +747,22 @@ private struct ProfilePickerRow: View {
                 .sheet(isPresented: $showQRCode) {
                     if let remoteURL = profile.remoteURL {
                         QRCodeSheet(profileName: profile.name, remoteURL: remoteURL)
+                    }
+                }
+                .sheet(isPresented: $showQRSShare) {
+                    if let data = try? profile.origin.toContent().encode() {
+                        QRSSheet(profileName: profile.name, profileData: data)
+                    }
+                }
+                .fileExporter(
+                    isPresented: $showExporter,
+                    document: exportDocument,
+                    contentType: exportDocument?.contentType ?? .data,
+                    defaultFilename: exportDocument?.filename
+                ) { result in
+                    exportDocument = nil
+                    if case let .failure(error) = result {
+                        alert = AlertState(error: error)
                     }
                 }
             }
@@ -828,6 +873,11 @@ private struct ProfilePickerRow: View {
                 self.shareItemType = nil
                 shareProfile(type: shareItemType)
             }
+            .onChange(of: exportItemType) { exportItemType in
+                guard let exportItemType else { return }
+                self.exportItemType = nil
+                exportProfileMacOS(type: exportItemType)
+            }
         #endif
     }
 
@@ -837,15 +887,51 @@ private struct ProfilePickerRow: View {
             Menu {
                 #if os(macOS)
                     Button {
+                        exportItemType = .file
+                    } label: {
+                        Label("Save File", systemImage: "square.and.arrow.down")
+                    }
+
+                    Button {
                         shareItemType = .file
                     } label: {
                         Label("Share File", systemImage: "doc")
                     }
+
+                    Button {
+                        exportItemType = .json
+                    } label: {
+                        Label("Save Content JSON", systemImage: "square.and.arrow.down")
+                    }
+
+                    Button {
+                        shareItemType = .json
+                    } label: {
+                        Label("Share Content JSON File", systemImage: "curlybraces")
+                    }
                 #else
+                    Button {
+                        exportProfile(type: .file)
+                    } label: {
+                        Label("Save File", systemImage: "square.and.arrow.down")
+                    }
+
                     ShareButtonCompat($alert) {
                         Label("Share File", systemImage: "doc")
                     } itemURL: {
                         try profile.origin.toContent().generateShareFile()
+                    }
+
+                    Button {
+                        exportProfile(type: .json)
+                    } label: {
+                        Label("Save Content JSON", systemImage: "square.and.arrow.down")
+                    }
+
+                    ShareButtonCompat($alert) {
+                        Label("Share Content JSON File", systemImage: "curlybraces")
+                    } itemURL: {
+                        try profile.origin.read().generateShareFile(name: "\(profile.name).json")
                     }
                 #endif
 
@@ -857,21 +943,29 @@ private struct ProfilePickerRow: View {
                     }
                 }
 
-                #if os(macOS)
-                    Button {
-                        shareItemType = .json
-                    } label: {
-                        Label("Share Content JSON File", systemImage: "curlybraces")
-                    }
-                #else
-                    ShareButtonCompat($alert) {
-                        Label("Share Content JSON File", systemImage: "curlybraces")
-                    } itemURL: {
-                        try profile.origin.read().generateShareFile(name: "\(profile.name).json")
-                    }
-                #endif
+                Button {
+                    showQRSShare = true
+                } label: {
+                    Label("Share as QRS Code", systemImage: "barcode")
+                }
             } label: {
                 Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+
+        private func exportProfile(type: ExportItemType) {
+            do {
+                switch type {
+                case .file:
+                    let doc = try ProfileExportDocument(content: profile.origin.toContent())
+                    exportDocument = ProfileAnyExportDocument(profile: doc)
+                case .json:
+                    let doc = try ProfileJSONExportDocument(jsonContent: profile.origin.read(), name: profile.name)
+                    exportDocument = ProfileAnyExportDocument(json: doc)
+                }
+                showExporter = true
+            } catch {
+                alert = AlertState(error: error)
             }
         }
     #endif
@@ -921,6 +1015,22 @@ private struct ProfilePickerRow: View {
             }
         }
 
+        private func exportProfileMacOS(type: ExportItemType) {
+            do {
+                switch type {
+                case .file:
+                    let doc = try ProfileExportDocument(content: profile.origin.toContent())
+                    exportDocument = ProfileAnyExportDocument(profile: doc)
+                case .json:
+                    let doc = try ProfileJSONExportDocument(jsonContent: profile.origin.read(), name: profile.name)
+                    exportDocument = ProfileAnyExportDocument(json: doc)
+                }
+                showExporter = true
+            } catch {
+                alert = AlertState(error: error)
+            }
+        }
+
         static func previewContent(profile: ProfilePreview, width: CGFloat) -> some View {
             HStack(spacing: 12) {
                 Image(systemName: "line.3.horizontal")
@@ -964,6 +1074,15 @@ private struct ProfilePickerRow: View {
         }
     #endif
 }
+
+// MARK: - Export Helpers
+
+#if !os(tvOS)
+    private enum ExportItemType {
+        case file
+        case json
+    }
+#endif
 
 // MARK: - macOS Helpers
 
@@ -1015,6 +1134,9 @@ private struct ProfilePickerRow: View {
 
         @State private var isUpdating = false
         @State private var showQRCode = false
+        @State private var showQRSShare = false
+        @State private var exportDocument: ProfileAnyExportDocument?
+        @State private var showExporter = false
 
         var body: some View {
             Group {
@@ -1072,6 +1194,22 @@ private struct ProfilePickerRow: View {
                     QRCodeSheet(profileName: profile.name, remoteURL: remoteURL)
                 }
             }
+            .sheet(isPresented: $showQRSShare) {
+                if let data = try? profile.origin.toContent().encode() {
+                    QRSSheet(profileName: profile.name, profileData: data)
+                }
+            }
+            .fileExporter(
+                isPresented: $showExporter,
+                document: exportDocument,
+                contentType: exportDocument?.contentType ?? .data,
+                defaultFilename: exportDocument?.filename
+            ) { result in
+                exportDocument = nil
+                if case let .failure(error) = result {
+                    alert = AlertState(error: error)
+                }
+            }
         }
 
         private var rowMenu: some View {
@@ -1115,10 +1253,28 @@ private struct ProfilePickerRow: View {
         @ViewBuilder
         private var shareMenu: some View {
             Menu {
+                Button {
+                    exportProfile(type: .file)
+                } label: {
+                    Label("Save File", systemImage: "square.and.arrow.down")
+                }
+
                 ShareButtonCompat($alert) {
                     Label("Share File", systemImage: "doc")
                 } itemURL: {
                     try profile.origin.toContent().generateShareFile()
+                }
+
+                Button {
+                    exportProfile(type: .json)
+                } label: {
+                    Label("Save Content JSON", systemImage: "square.and.arrow.down")
+                }
+
+                ShareButtonCompat($alert) {
+                    Label("Share Content JSON File", systemImage: "curlybraces")
+                } itemURL: {
+                    try profile.origin.read().generateShareFile(name: "\(profile.name).json")
                 }
 
                 if profile.type == .remote {
@@ -1129,13 +1285,29 @@ private struct ProfilePickerRow: View {
                     }
                 }
 
-                ShareButtonCompat($alert) {
-                    Label("Share Content JSON File", systemImage: "curlybraces")
-                } itemURL: {
-                    try profile.origin.read().generateShareFile(name: "\(profile.name).json")
+                Button {
+                    showQRSShare = true
+                } label: {
+                    Label("Share as QRS Code", systemImage: "barcode")
                 }
             } label: {
                 Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+
+        private func exportProfile(type: ExportItemType) {
+            do {
+                switch type {
+                case .file:
+                    let doc = try ProfileExportDocument(content: profile.origin.toContent())
+                    exportDocument = ProfileAnyExportDocument(profile: doc)
+                case .json:
+                    let doc = try ProfileJSONExportDocument(jsonContent: profile.origin.read(), name: profile.name)
+                    exportDocument = ProfileAnyExportDocument(json: doc)
+                }
+                showExporter = true
+            } catch {
+                alert = AlertState(error: error)
             }
         }
 

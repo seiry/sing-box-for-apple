@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 public final class NewProfileViewModel: BaseViewModel {
     @Published public var isSaving = false
+    @Published public var createSucceeded = false
     @Published public var profileName = ""
     #if !os(tvOS)
         @Published public var profileType = ProfileType.local
@@ -81,6 +82,7 @@ public final class NewProfileViewModel: BaseViewModel {
         if sendUpdateNotification {
             environments.profileUpdate.send()
         }
+        createSucceeded = true
         dismiss?()
 
         #if os(macOS)
@@ -109,10 +111,10 @@ public final class NewProfileViewModel: BaseViewModel {
             let profileConfig = profileConfigDirectory.appendingPathComponent("config_\(nextProfileID).json")
             if fileImport {
                 guard let fileURL else {
-                    throw NSError(domain: "Missing file", code: 0)
+                    throw NSError(domain: "NewProfileViewModel", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Missing file")])
                 }
                 if !fileURL.startAccessingSecurityScopedResource() {
-                    throw NSError(domain: "Missing access to selected file", code: 0)
+                    throw NSError(domain: "NewProfileViewModel", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Missing access to selected file")])
                 }
                 defer {
                     fileURL.stopAccessingSecurityScopedResource()

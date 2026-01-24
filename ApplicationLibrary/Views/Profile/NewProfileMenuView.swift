@@ -9,14 +9,15 @@ public struct NewProfileMenuView: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @Environment(\.dismiss) private var dismiss
     @State private var alert: AlertState?
-    @State private var showFileImporter = false
     @State private var importRequest: NewProfileView.ImportRequest?
     @State private var localImportRequest: NewProfileView.LocalImportRequest?
-    #if os(iOS)
-        @State private var showQRScanner = false
-    #elseif os(tvOS)
+    #if os(tvOS)
         @State private var importCompleted = false
-    #elseif os(macOS)
+    #else
+        @State private var showFileImporter = false
+        @State private var showQRScanner = false
+    #endif
+    #if os(macOS)
         @State private var showNewProfile = false
     #endif
 
@@ -76,6 +77,19 @@ public struct NewProfileMenuView: View {
                 })
                 .environmentObject(environments)
             }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { result in
+                    handleQRScanResult(result)
+                }
+                .frame(minWidth: 500, minHeight: 400)
+            }
+            .sheet(item: $importRequest) { request in
+                NewProfileView(request, onSuccess: { profile in
+                    await SharedPreferences.selectedProfileID.set(profile.mustID)
+                    dismiss()
+                })
+                .environmentObject(environments)
+            }
         }
     #endif
 
@@ -117,10 +131,10 @@ public struct NewProfileMenuView: View {
                     handleFileImport(result)
                 }
         #endif
-        #if os(iOS)
+        #if !os(tvOS)
         .sheet(isPresented: $showQRScanner) {
-            QRCodeScannerView { remoteProfile in
-                importRequest = NewProfileView.ImportRequest(name: remoteProfile.name, url: remoteProfile.url)
+            QRScannerView { result in
+                handleQRScanResult(result)
             }
         }
         #endif
@@ -148,7 +162,7 @@ public struct NewProfileMenuView: View {
                     }
                 #endif
 
-                #if os(iOS)
+                #if !os(tvOS)
                     FormButton {
                         showQRScanner = true
                     } label: {
@@ -209,6 +223,56 @@ public struct NewProfileMenuView: View {
                         secondaryButton: .cancel()
                     )
                 }
+            } catch {
+                alert = AlertState(error: error)
+            }
+        }
+    #endif
+
+    #if !os(tvOS)
+        private func handleQRScanResult(_ result: QRScanResult) {
+            switch result {
+            case let .qrCode(string, _):
+                handleQRCodeString(string)
+            case let .qrsData(data):
+                handleQRSData(data)
+            }
+        }
+
+        private func handleQRCodeString(_ string: String) {
+            var error: NSError?
+            let remoteProfile = LibboxParseRemoteProfileImportLink(string, &error)
+            if let error {
+                alert = AlertState(error: error)
+                return
+            }
+            guard let remoteProfile else {
+                alert = AlertState(errorMessage: String(localized: "The QR code does not contain a valid profile import link."))
+                return
+            }
+            importRequest = NewProfileView.ImportRequest(name: remoteProfile.name, url: remoteProfile.url)
+        }
+
+        private func handleQRSData(_ data: Data) {
+            do {
+                let (actualData, _, _) = try BinaryMeta.readFileHeaderMeta(buffer: data)
+                let content = try LibboxProfileContent.from(actualData)
+                alert = AlertState(
+                    title: String(localized: "Import Profile"),
+                    message: String(localized: "Are you sure to import profile \(content.name)?"),
+                    primaryButton: .default(String(localized: "Import")) {
+                        Task {
+                            do {
+                                try await content.importProfile()
+                                environments.profileUpdate.send()
+                                dismiss()
+                            } catch {
+                                alert = AlertState(error: error)
+                            }
+                        }
+                    },
+                    secondaryButton: .cancel()
+                )
             } catch {
                 alert = AlertState(error: error)
             }

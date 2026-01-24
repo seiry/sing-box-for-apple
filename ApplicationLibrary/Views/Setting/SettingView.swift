@@ -1,17 +1,52 @@
 import Library
 import SwiftUI
 
+#if os(macOS)
+    private struct SettingsNavigationPathKey: EnvironmentKey {
+        static let defaultValue: Binding<NavigationPath>? = nil
+    }
+
+    public extension EnvironmentValues {
+        var settingsNavigationPath: Binding<NavigationPath>? {
+            get { self[SettingsNavigationPathKey.self] }
+            set { self[SettingsNavigationPathKey.self] = newValue }
+        }
+    }
+#endif
+
+#if os(macOS)
+    public enum SettingsPage: Hashable {
+        case app
+        case core, packetTunnel, onDemandRules, profileOverride, sponsors
+    }
+#endif
+
 public struct SettingView: View {
     private enum Tabs: Int, CaseIterable, Identifiable {
         var id: Self {
             self
         }
 
-        #if os(macOS)
-            case app
-        #endif
+        case app, core, packetTunnel, onDemandRules, profileOverride, sponsors
 
-        case core, packetTunnel, onDemandRules, profileOverride, sponsors
+        #if os(macOS)
+            var page: SettingsPage {
+                switch self {
+                case .app:
+                    return .app
+                case .core:
+                    return .core
+                case .packetTunnel:
+                    return .packetTunnel
+                case .onDemandRules:
+                    return .onDemandRules
+                case .profileOverride:
+                    return .profileOverride
+                case .sponsors:
+                    return .sponsors
+                }
+            }
+        #endif
 
         var label: some View {
             Label(title, systemImage: iconImage)
@@ -19,10 +54,8 @@ public struct SettingView: View {
 
         var title: String {
             switch self {
-            #if os(macOS)
-                case .app:
-                    return String(localized: "App")
-            #endif
+            case .app:
+                return String(localized: "App")
             case .core:
                 return String(localized: "Core")
             case .packetTunnel:
@@ -38,10 +71,8 @@ public struct SettingView: View {
 
         private var iconImage: String {
             switch self {
-            #if os(macOS)
-                case .app:
-                    return "app.badge.fill"
-            #endif
+            case .app:
+                return "app.badge.fill"
             case .core:
                 return "shippingbox.fill"
             case .packetTunnel:
@@ -59,10 +90,8 @@ public struct SettingView: View {
         var contentView: some View {
             Group {
                 switch self {
-                #if os(macOS)
-                    case .app:
-                        AppView()
-                #endif
+                case .app:
+                    AppView()
                 case .core:
                     CoreView()
                 case .packetTunnel:
@@ -83,24 +112,50 @@ public struct SettingView: View {
 
         @MainActor
         var navigationLink: some View {
-            FormNavigationLink {
-                contentView
-            } label: {
-                label
-            }
+            #if os(macOS)
+                FormNavigationLink(value: page) {
+                    label
+                }
+            #else
+                FormNavigationLink {
+                    contentView
+                } label: {
+                    label
+                }
+            #endif
         }
     }
 
-    @StateObject private var viewModel = SettingViewModel()
+    #if os(macOS)
+        @MainActor
+        @ViewBuilder
+        private static func destinationView(for page: SettingsPage) -> some View {
+            Group {
+                switch page {
+                case .app:
+                    AppView()
+                case .core:
+                    CoreView()
+                case .packetTunnel:
+                    PacketTunnelView()
+                case .onDemandRules:
+                    OnDemandRulesView()
+                case .profileOverride:
+                    ProfileOverrideView()
+                case .sponsors:
+                    SponsorsView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    #endif
 
+    @StateObject private var viewModel = SettingViewModel()
     public init() {}
     public var body: some View {
         FormView {
-            #if os(macOS)
-                Tabs.app.navigationLink
-            #endif
             Section {
-                ForEach([Tabs.core, Tabs.packetTunnel, Tabs.onDemandRules, Tabs.profileOverride]) { it in
+                ForEach([Tabs.app, Tabs.core, Tabs.packetTunnel, Tabs.onDemandRules, Tabs.profileOverride]) { it in
                     it.navigationLink
                 }
             }
@@ -159,5 +214,10 @@ public struct SettingView: View {
                 }
             }
         }
+        #if os(macOS)
+        .formNavigationDestination(for: SettingsPage.self) { page in
+            Self.destinationView(for: page)
+        }
+        #endif
     }
 }
