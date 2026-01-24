@@ -68,9 +68,9 @@ jobs:
           git clone --depth 1 --branch dev-next https://github.com/SagerNet/sing-box.git /tmp/sing-box
           cd /tmp/sing-box
           
-          # Install gomobile (pinned to latest stable version)
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          # Install gomobile (SagerNet fork required by sing-box)
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.11
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.11
           gomobile init || { echo "Error: Failed to initialize gomobile"; exit 1; }
           
           # Build the xcframework for iOS
