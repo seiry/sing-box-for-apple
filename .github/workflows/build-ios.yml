@@ -114,13 +114,21 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
       
-      - name: Export IPA
+      - name: Extract app from archive (for unsigned builds)
         run: |
           set -e
-          xcodebuild -exportArchive \
-            -archivePath build/SFI.xcarchive \
-            -exportOptionsPlist SFI/Export.plist \
-            -exportPath build/SFI
+          # Extract the .app from the xcarchive
+          cp -R build/SFI.xcarchive/Products/Applications/SFI.app build/
+          
+          # Create a simple IPA (just a zip with .app inside Payload/)
+          mkdir -p build/SFI/Payload
+          cp -R build/SFI.app build/SFI/Payload/
+          cd build/SFI
+          zip -r SFI-unsigned.ipa Payload
+          cd ../..
+          
+          echo "Created unsigned IPA"
+          ls -lh build/SFI/SFI-unsigned.ipa
       
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
