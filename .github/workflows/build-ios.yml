@@ -22,7 +22,7 @@ jobs:
           submodules: recursive
       
       - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
           xcode-version: latest-stable
       
@@ -34,6 +34,7 @@ jobs:
       
       - name: Archive iOS App
         run: |
+          set -e
           xcodebuild archive \
             -scheme SFI \
             -configuration Release \
@@ -45,6 +46,7 @@ jobs:
       
       - name: Export IPA
         run: |
+          set -e
           xcodebuild -exportArchive \
             -archivePath build/SFI.xcarchive \
             -exportOptionsPlist SFI/Export.plist \
