@@ -120,11 +120,11 @@ jobs:
           echo "Exploring xcarchive structure..."
           find build/SFI.xcarchive -name "*.app" -type d
           
-          # Find the .app in the xcarchive (location may vary)
-          APP_PATH=$(find build/SFI.xcarchive -name "SFI.app" -type d | head -n 1)
+          # Find the main .app in the xcarchive (look for sing-box.app)
+          APP_PATH=$(find build/SFI.xcarchive/Products/Applications -name "*.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: SFI.app not found in xcarchive"
+            echo "Error: No .app found in xcarchive Products/Applications"
             echo "Archive contents:"
             ls -R build/SFI.xcarchive
             exit 1
