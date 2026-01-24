@@ -39,7 +39,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath build/SFI.xcarchive \
-            -allowProvisioningUpdates \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
@@ -49,11 +48,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath build/SFI.xcarchive \
             -exportOptionsPlist SFI/Export.plist \
-            -exportPath build/SFI \
-            -allowProvisioningUpdates \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            -exportPath build/SFI
       
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
@@ -69,3 +64,11 @@ jobs:
           name: SFI-xcarchive
           path: build/SFI.xcarchive
           retention-days: 7
+      
+      - name: List build outputs
+        run: |
+          echo "Build completed successfully!"
+          echo "Artifacts:"
+          ls -lh build/SFI/
+          echo ""
+          echo "The unsigned IPA is ready for signing and installation."
