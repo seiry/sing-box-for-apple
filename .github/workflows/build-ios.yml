@@ -1,0 +1,71 @@
+name: Build iOS App (SFI)
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build SFI for iOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Display Xcode version
+        run: xcodebuild -version
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Archive iOS App
+        run: |
+          xcodebuild archive \
+            -scheme SFI \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/SFI.xcarchive \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/SFI.xcarchive \
+            -exportOptionsPlist SFI/Export.plist \
+            -exportPath build/SFI \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFI-unsigned-ipa
+          path: build/SFI/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+      
+      - name: Upload archive as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFI-xcarchive
+          path: build/SFI.xcarchive
+          retention-days: 7
