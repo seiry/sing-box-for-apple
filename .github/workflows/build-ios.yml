@@ -37,12 +37,20 @@ jobs:
           go-version: '1.23'
           cache: false
       
+      - name: Get sing-box version
+        id: sing-box-version
+        run: |
+          # Fetch the latest commit SHA from sing-box dev-next branch
+          SING_BOX_SHA=$(git ls-remote https://github.com/SagerNet/sing-box.git refs/heads/dev-next | cut -f1)
+          echo "sha=${SING_BOX_SHA:0:8}" >> $GITHUB_OUTPUT
+          echo "Using sing-box commit: ${SING_BOX_SHA:0:8}"
+      
       - name: Cache Libbox.xcframework
         id: cache-libbox
         uses: actions/cache@v4
         with:
           path: Libbox.xcframework
-          key: libbox-xcframework-${{ runner.os }}-${{ hashFiles('.github/workflows/build-ios.yml') }}
+          key: libbox-xcframework-${{ runner.os }}-${{ steps.sing-box-version.outputs.sha }}
           restore-keys: |
             libbox-xcframework-${{ runner.os }}-
       
