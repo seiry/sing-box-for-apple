@@ -42,6 +42,10 @@ jobs:
         run: |
           # Fetch the latest commit SHA from sing-box dev-next branch
           SING_BOX_SHA=$(git ls-remote https://github.com/SagerNet/sing-box.git refs/heads/dev-next | cut -f1)
+          if [ -z "$SING_BOX_SHA" ]; then
+            echo "Error: Failed to fetch sing-box commit SHA"
+            exit 1
+          fi
           echo "sha=${SING_BOX_SHA:0:8}" >> $GITHUB_OUTPUT
           echo "Using sing-box commit: ${SING_BOX_SHA:0:8}"
       
@@ -64,13 +68,17 @@ jobs:
           git clone --depth 1 --branch dev-next https://github.com/SagerNet/sing-box.git /tmp/sing-box
           cd /tmp/sing-box
           
-          # Install gomobile
+          # Install gomobile (pinned to latest stable version)
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
-          gomobile init
+          gomobile init || { echo "Error: Failed to initialize gomobile"; exit 1; }
           
           # Build the xcframework for iOS
-          go run ./cmd/internal/build_libbox -target apple -platform ios,iossimulator
+          echo "Building xcframework..."
+          go run ./cmd/internal/build_libbox -target apple -platform ios,iossimulator || {
+            echo "Error: Failed to build Libbox.xcframework"
+            exit 1
+          }
           
           # Copy to the project directory
           if [ -d "Libbox.xcframework" ]; then
