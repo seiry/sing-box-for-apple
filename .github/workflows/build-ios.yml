@@ -102,7 +102,17 @@ jobs:
       - name: Create build directory
         run: mkdir -p build
       
+      - name: Cache xcarchive
+        id: cache-xcarchive
+        uses: actions/cache@v4
+        with:
+          path: build/SFI.xcarchive
+          key: xcarchive-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/*.m', '**/*.h', '*.xcodeproj/**', 'Libbox.xcframework/**') }}
+          restore-keys: |
+            xcarchive-${{ runner.os }}-
+      
       - name: Archive iOS App
+        if: steps.cache-xcarchive.outputs.cache-hit != 'true'
         run: |
           set -e
           xcodebuild archive \
