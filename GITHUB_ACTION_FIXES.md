@@ -3,7 +3,7 @@
 ## ✅ Issues Fixed
 
 ### 1. Swift Compilation Errors - `glassEffect` API
-**Problem**: The code used `glassEffect` API with availability checks for iOS 26.0, which doesn't exist. This caused compilation errors:
+**Problem**: The code used `glassEffect` API with availability checks for iOS 26.0, which doesn't exist (as of January 2026, the latest is iOS 18.x). This caused compilation errors:
 ```
 error: value of type 'some View' has no member 'glassEffect'
 error: cannot infer contextual base in reference to member 'regular'
@@ -19,7 +19,7 @@ error: cannot infer contextual base in reference to member 'rect'
 **Validation**: ✅ Swift syntax validated with `swiftc -parse` - no errors
 
 ### 2. Invalid Go Version
-**Problem**: Workflow specified Go 1.24.x which doesn't exist yet.
+**Problem**: Workflow specified Go 1.24.x which doesn't exist yet (as of January 2026, the latest stable is Go 1.23.x).
 
 **File Fixed**: `.github/workflows/build-ios-tipa.yml`
 
