@@ -31,6 +31,39 @@ jobs:
       - name: Display Xcode version
         run: xcodebuild -version
       
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+      
+      - name: Build Libbox.xcframework
+        run: |
+          set -e
+          echo "Building Libbox.xcframework from sing-box repository..."
+          
+          # Clone sing-box repository
+          git clone --depth 1 --branch dev-next https://github.com/SagerNet/sing-box.git /tmp/sing-box
+          cd /tmp/sing-box
+          
+          # Install gomobile
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+          
+          # Build the xcframework for iOS
+          go run ./cmd/internal/build_libbox -target apple -platform ios,iossimulator
+          
+          # Copy to the project directory
+          if [ -d "Libbox.xcframework" ]; then
+            cp -R Libbox.xcframework "$GITHUB_WORKSPACE/"
+            echo "Libbox.xcframework built and copied successfully"
+            ls -la "$GITHUB_WORKSPACE/Libbox.xcframework"
+          else
+            echo "Error: Libbox.xcframework was not created"
+            exit 1
+          fi
+      
       - name: Create build directory
         run: mkdir -p build
       
