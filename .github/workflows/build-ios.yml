@@ -1,0 +1,78 @@
+name: Build iOS App (SFI)
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build SFI for iOS
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: latest-stable
+      
+      - name: Display Xcode version
+        run: xcodebuild -version
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Archive iOS App
+        run: |
+          set -e
+          xcodebuild archive \
+            -scheme SFI \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/SFI.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      
+      - name: Export IPA
+        run: |
+          set -e
+          xcodebuild -exportArchive \
+            -archivePath build/SFI.xcarchive \
+            -exportOptionsPlist SFI/Export.plist \
+            -exportPath build/SFI
+      
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFI-unsigned-ipa
+          path: build/SFI/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+      
+      - name: Upload archive as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFI-xcarchive
+          path: build/SFI.xcarchive
+          retention-days: 7
+      
+      - name: List build outputs
+        run: |
+          echo "Build completed successfully!"
+          echo "Artifacts:"
+          ls -lh build/SFI/
+          echo ""
+          echo "The unsigned IPA is ready for signing and installation."
