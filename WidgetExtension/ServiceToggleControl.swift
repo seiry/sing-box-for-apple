@@ -5,7 +5,6 @@ import WidgetKit
 #if canImport(AppIntents)
 import AppIntents
 
-@available(iOS 18.0, *)
 struct ServiceToggleControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(
@@ -27,7 +26,6 @@ struct ServiceToggleControl: ControlWidget {
     }
 }
 
-@available(iOS 18.0, *)
 extension ServiceToggleControl {
     struct Provider: ControlValueProvider {
         var previewValue: Bool {
@@ -43,7 +41,6 @@ extension ServiceToggleControl {
     }
 }
 
-@available(iOS 18.0, *)
 struct ToggleServiceIntent: SetValueIntent {
     static var title: LocalizedStringResource = "Toggle sing-box"
 
