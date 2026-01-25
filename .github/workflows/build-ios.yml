@@ -31,10 +31,88 @@ jobs:
       - name: Display Xcode version
         run: xcodebuild -version
       
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+      
+      - name: Get sing-box version
+        id: sing-box-version
+        run: |
+          # Fetch the latest commit SHA from sing-box dev-next branch
+          SING_BOX_SHA=$(git ls-remote https://github.com/SagerNet/sing-box.git refs/heads/dev-next | cut -f1)
+          if [ -z "$SING_BOX_SHA" ]; then
+            echo "Error: Failed to fetch sing-box commit SHA"
+            exit 1
+          fi
+          echo "sha=${SING_BOX_SHA:0:8}" >> $GITHUB_OUTPUT
+          echo "Using sing-box commit: ${SING_BOX_SHA:0:8}"
+      
+      - name: Cache Libbox.xcframework
+        id: cache-libbox
+        uses: actions/cache@v4
+        with:
+          path: Libbox.xcframework
+          key: libbox-xcframework-${{ runner.os }}-${{ steps.sing-box-version.outputs.sha }}
+          restore-keys: |
+            libbox-xcframework-${{ runner.os }}-
+      
+      - name: Build Libbox.xcframework
+        if: steps.cache-libbox.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          echo "Building Libbox.xcframework from sing-box repository..."
+          
+          # Clone sing-box repository
+          git clone --depth 1 --branch dev-next https://github.com/SagerNet/sing-box.git /tmp/sing-box
+          cd /tmp/sing-box
+          
+          # Install gomobile (SagerNet fork required by sing-box)
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.11
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.11
+          gomobile init || { echo "Error: Failed to initialize gomobile"; exit 1; }
+          
+          # Build the xcframework for iOS
+          echo "Building xcframework..."
+          go run ./cmd/internal/build_libbox -target apple -platform ios,iossimulator || {
+            echo "Error: Failed to build Libbox.xcframework"
+            exit 1
+          }
+          
+          # Copy to the project directory
+          if [ -d "Libbox.xcframework" ]; then
+            cp -R Libbox.xcframework "$GITHUB_WORKSPACE/"
+            echo "Libbox.xcframework built and copied successfully"
+            ls -la "$GITHUB_WORKSPACE/Libbox.xcframework"
+          else
+            echo "Error: Libbox.xcframework was not created"
+            exit 1
+          fi
+      
+      - name: Verify Libbox.xcframework
+        run: |
+          if [ ! -d "Libbox.xcframework" ]; then
+            echo "Error: Libbox.xcframework not found"
+            exit 1
+          fi
+          echo "Libbox.xcframework is present"
+          ls -la Libbox.xcframework
+      
       - name: Create build directory
         run: mkdir -p build
       
+      - name: Cache xcarchive
+        id: cache-xcarchive
+        uses: actions/cache@v4
+        with:
+          path: build/SFI.xcarchive
+          key: xcarchive-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/*.m', '**/*.h', '*.xcodeproj/**', 'Libbox.xcframework/**') }}
+          restore-keys: |
+            xcarchive-${{ runner.os }}-
+      
       - name: Archive iOS App
+        if: steps.cache-xcarchive.outputs.cache-hit != 'true'
         run: |
           set -e
           xcodebuild archive \
@@ -46,13 +124,33 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
       
-      - name: Export IPA
+      - name: Extract app from archive (for unsigned builds)
         run: |
           set -e
-          xcodebuild -exportArchive \
-            -archivePath build/SFI.xcarchive \
-            -exportOptionsPlist SFI/Export.plist \
-            -exportPath build/SFI
+          echo "Exploring xcarchive structure..."
+          find build/SFI.xcarchive -name "*.app" -type d
+          
+          # Find the main .app in the xcarchive (look for sing-box.app)
+          APP_PATH=$(find build/SFI.xcarchive/Products/Applications -name "*.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: No .app found in xcarchive Products/Applications"
+            echo "Archive contents:"
+            ls -R build/SFI.xcarchive
+            exit 1
+          fi
+          
+          echo "Found app at: $APP_PATH"
+          
+          # Create a simple IPA (just a zip with .app inside Payload/)
+          mkdir -p build/SFI/Payload
+          cp -R "$APP_PATH" build/SFI/Payload/
+          cd build/SFI
+          zip -r SFI-unsigned.ipa Payload
+          cd ../..
+          
+          echo "Created unsigned IPA"
+          ls -lh build/SFI/SFI-unsigned.ipa
       
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
