@@ -1,7 +1,9 @@
-import AppIntents
 import Library
 import SwiftUI
 import WidgetKit
+
+#if canImport(AppIntents)
+import AppIntents
 
 struct ServiceToggleControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
@@ -57,3 +59,4 @@ struct ToggleServiceIntent: SetValueIntent {
         return .result()
     }
 }
+#endif
