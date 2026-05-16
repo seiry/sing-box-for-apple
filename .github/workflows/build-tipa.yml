@@ -34,10 +34,15 @@ jobs:
       - name: Resolve version and sing-box ref
         id: ref
         run: |
-          version="$(xcodebuild -showBuildSettings -scheme SFI -configuration Release 2>/dev/null \
-            | awk -F' = ' '/^    MARKETING_VERSION = /{print $2; exit}')"
+          # Parse pbxproj directly: the SFI app uses a 3-part numeric MARKETING_VERSION
+          # (e.g. "1.13.12"). The HelperService uses "1.13.0-alpha.21" (excluded by the
+          # `[0-9]+\.[0-9]+\.[0-9]+` shape) and extensions use bare `1.0` (excluded by
+          # the surrounding quotes).
+          version="$(grep -E 'MARKETING_VERSION = "[0-9]+\.[0-9]+\.[0-9]+";' \
+            sing-box.xcodeproj/project.pbxproj \
+            | sed -E 's/.*"([^"]+)".*/\1/' | sort -u | tail -1)"
           if [ -z "$version" ]; then
-            echo "Failed to read MARKETING_VERSION" >&2; exit 1
+            echo "Failed to read MARKETING_VERSION from pbxproj" >&2; exit 1
           fi
           if [ -n "${{ inputs.sing_box_ref }}" ]; then
             ref="${{ inputs.sing_box_ref }}"
