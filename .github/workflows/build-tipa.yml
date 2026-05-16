@@ -93,6 +93,7 @@ jobs:
 
       - name: Archive SFI (unsigned)
         run: |
+          set -o pipefail
           xcodebuild archive \
             -scheme SFI \
             -configuration Release \
@@ -108,13 +109,23 @@ jobs:
             ARCHS=arm64 \
             | xcbeautify --renderer github-actions
 
+      - name: Inspect archive
+        run: |
+          echo "--- build/ tree ---"
+          find build -maxdepth 6 -name "*.app" -o -name "Applications" -type d
+          echo "--- Applications/ contents ---"
+          ls -la build/SFI.xcarchive/Products/Applications/ 2>&1 || true
+
       - name: Package TIPA
         id: tipa
         run: |
+          app="$(find build/SFI.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -type d | head -1)"
+          if [ -z "$app" ]; then
+            echo "No .app found in archive" >&2; exit 1
+          fi
+          echo "Found app: $app"
           out="build/SFI-${{ steps.ref.outputs.version }}-TrollStore.tipa"
-          bash scripts/make_tipa.sh \
-            build/SFI.xcarchive/Products/Applications/sing-box.app \
-            "$out"
+          bash scripts/make_tipa.sh "$app" "$out"
           echo "path=${out}" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$out")" >> "$GITHUB_OUTPUT"
 
