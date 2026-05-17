@@ -25,11 +25,22 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode
+      - name: Select latest Xcode 16
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || \
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)/Contents/Developer"
+          xc="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$xc" ]; then
+            echo "No Xcode 16 found on runner" >&2; exit 1
+          fi
+          sudo xcode-select -s "$xc/Contents/Developer"
           xcodebuild -version
+
+      - name: Install iOS platform if missing
+        run: |
+          # WidgetExtension targets iOS 18, so the iOS device DDI must be installed
+          # for `generic/platform=iOS` to be a valid destination. Simulator-only runtimes
+          # (preinstalled on macos-15) are not sufficient.
+          # This command is idempotent — skips download if the platform is already present.
+          xcodebuild -downloadPlatform iOS
 
       - name: Resolve version and sing-box ref
         id: ref
