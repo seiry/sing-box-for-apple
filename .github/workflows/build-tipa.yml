@@ -25,11 +25,16 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select latest Xcode 16
+      - name: Select Xcode (prefer Xcode 26+ for Swift 6.1 nonisolated deinit)
         run: |
-          xc="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)"
+          # Library/Network/ExtensionProfile.swift uses `nonisolated deinit`, which is
+          # stable in Swift 6.1 (Xcode 26+) but only experimental in Xcode 16.x.
+          xc="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
           if [ -z "$xc" ]; then
-            echo "No Xcode 16 found on runner" >&2; exit 1
+            xc="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
+          fi
+          if [ -z "$xc" ]; then
+            echo "No Xcode found on runner" >&2; exit 1
           fi
           sudo xcode-select -s "$xc/Contents/Developer"
           xcodebuild -version
@@ -105,6 +110,7 @@ jobs:
       - name: Archive SFI (unsigned)
         run: |
           set -o pipefail
+          mkdir -p build
           xcodebuild archive \
             -scheme SFI \
             -configuration Release \
@@ -118,7 +124,27 @@ jobs:
             ENABLE_BITCODE=NO \
             ONLY_ACTIVE_ARCH=NO \
             ARCHS=arm64 \
-            | xcbeautify --renderer github-actions
+            2>&1 | tee build/xcodebuild.log | xcbeautify --renderer github-actions
+
+      - name: Show raw build errors on failure
+        if: failure()
+        run: |
+          if [ -f build/xcodebuild.log ]; then
+            echo "::group::Raw xcodebuild errors"
+            grep -E "error:|note:.*declared here|FAILED|cannot find" build/xcodebuild.log | head -80 || true
+            echo "::endgroup::"
+            echo "::group::Last 200 lines of raw log"
+            tail -200 build/xcodebuild.log
+            echo "::endgroup::"
+          fi
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
 
       - name: Inspect archive
         run: |
